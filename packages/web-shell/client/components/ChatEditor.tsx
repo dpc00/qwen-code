@@ -259,6 +259,8 @@ interface ChatEditorProps {
   onCreateScratchWorkspace?: () => void;
   onOpenExistingWorkspace?: () => void;
   atWorkspaceCwd?: string;
+  composerScopeKey?: string;
+  workspaceFeaturesEnabled?: boolean;
   onChatWidthModeChange?: (mode: '1000' | 'wide') => void;
   onFocusFooter?: () => boolean;
   dialogOpen?: boolean;
@@ -1524,6 +1526,8 @@ export const ChatEditor = memo(
       onCreateScratchWorkspace,
       onOpenExistingWorkspace,
       atWorkspaceCwd,
+      composerScopeKey,
+      workspaceFeaturesEnabled = true,
       onChatWidthModeChange,
       onFocusFooter,
       dialogOpen = false,
@@ -1578,7 +1582,7 @@ export const ChatEditor = memo(
     // item can be capability-gated (hidden on daemons without the feature).
     const uploadWorkspace = useOptionalWorkspace();
     const uploadTarget = useMemo(() => {
-      if (!uploadWorkspace) return undefined;
+      if (!uploadWorkspace || !workspaceFeaturesEnabled) return undefined;
       // The host prop can force-disable upload even when the daemon advertises
       // the capability; it does NOT bypass the capability check. Both must
       // allow: `fileUploadEnabled === false` short-circuits, otherwise the
@@ -1606,7 +1610,12 @@ export const ChatEditor = memo(
       if (primaryMatches.length !== 1 || primaryMatches[0].trusted !== true)
         return undefined;
       return { client: uploadWorkspace.client, targetKey: '<primary>' };
-    }, [uploadWorkspace, atWorkspaceCwd, fileUploadEnabled]);
+    }, [
+      uploadWorkspace,
+      atWorkspaceCwd,
+      fileUploadEnabled,
+      workspaceFeaturesEnabled,
+    ]);
     const uploadEnabled = uploadTarget !== undefined;
     const maxUploadBytes =
       uploadWorkspace?.capabilities?.limits?.maxWorkspaceFileUploadBytes ??
@@ -1674,7 +1683,7 @@ export const ChatEditor = memo(
       cycleModeOnTab,
       onToggleShortcuts,
       disabled,
-      fileDragEnabled: fileUploadEnabled !== false,
+      fileDragEnabled: workspaceFeaturesEnabled && fileUploadEnabled !== false,
       placeholderText,
       commands,
       skills,
@@ -1695,6 +1704,10 @@ export const ChatEditor = memo(
       builtinAtProviders: resolvedBuiltinAtProviders,
       atProviders: resolvedAtProviders,
       atWorkspaceCwd,
+      composerScopeKey,
+      disableLegacyHistoryFallback: !workspaceFeaturesEnabled,
+      attachmentsEnabled: workspaceFeaturesEnabled,
+      workspaceFeaturesEnabled,
       composerTagIcons,
       parseUserMessageContent,
       renderComposerTag,
@@ -3100,7 +3113,9 @@ export const ChatEditor = memo(
                         ),
                         Boolean(skills?.length),
                       ])}
-                      addFileAvailable={fileUploadEnabled !== false}
+                      addFileAvailable={
+                        workspaceFeaturesEnabled && fileUploadEnabled !== false
+                      }
                       uploadAvailable={uploadEnabled}
                       onAddFiles={handleAddMenuFiles}
                       onFilePickerCancel={focusComposer}

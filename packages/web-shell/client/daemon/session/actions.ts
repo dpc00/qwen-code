@@ -324,6 +324,31 @@ export function createDaemonSessionActions({
   let attachmentSessionId = sessionRef.current?.sessionId;
   let attachmentClientId = sessionRef.current?.clientId;
 
+  function publishStandaloneWorkingDirectoryError(
+    sessionId: string,
+    error: unknown,
+  ): void {
+    const errorCode = getDaemonErrorCode(error);
+    if (
+      errorCode !== 'working_directory_missing' &&
+      errorCode !== 'working_directory_compromised'
+    ) {
+      return;
+    }
+    setConnection((current) =>
+      current.sessionId === sessionId &&
+      current.sessionContext?.kind === 'standalone'
+        ? {
+            ...current,
+            standaloneSession: {
+              ...current.standaloneSession,
+              errorCode,
+            },
+          }
+        : current,
+    );
+  }
+
   function trackSessionConfigMutation<T>(
     session: DaemonSessionClient,
     operation: Promise<T>,
@@ -858,6 +883,7 @@ export function createDaemonSessionActions({
             ctrl.signal,
           );
         } catch (error) {
+          publishStandaloneWorkingDirectoryError(sessionId, error);
           const definiteRejection = isDefinitePromptAdmissionRejection(error);
           if (definiteRejection) {
             await removeUploadedAttachments(session, uploaded.references);
@@ -1006,6 +1032,7 @@ export function createDaemonSessionActions({
           promptRequest as Parameters<typeof session.submitPrompt>[0],
         );
       } catch (error) {
+        publishStandaloneWorkingDirectoryError(session.sessionId, error);
         const definiteRejection = isDefinitePromptAdmissionRejection(error);
         if (definiteRejection) {
           await removeUploadedAttachments(session, uploaded.references);
@@ -2144,6 +2171,7 @@ export function createDaemonSessionActions({
       try {
         return await session.shellCommand(command, ctrl.signal);
       } catch (error) {
+        publishStandaloneWorkingDirectoryError(session.sessionId, error);
         throw dispatchActionError(
           addNotice,
           'Shell command failed',
