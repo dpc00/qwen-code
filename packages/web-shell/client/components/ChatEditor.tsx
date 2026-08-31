@@ -1705,7 +1705,7 @@ export const ChatEditor = memo(
       atProviders: resolvedAtProviders,
       atWorkspaceCwd,
       composerScopeKey,
-      disableLegacyHistoryFallback: !workspaceFeaturesEnabled,
+      disableLegacyHistoryFallback: composerScopeKey === 'standalone',
       attachmentsEnabled: workspaceFeaturesEnabled,
       workspaceFeaturesEnabled,
       composerTagIcons,

@@ -2476,6 +2476,13 @@ export function App({
     () => workspaces.filter((entry) => entry.kind !== 'live'),
     [workspaces],
   );
+  const trustedPrimaryWorkspaceCwd = useMemo(
+    () =>
+      ordinaryWorkspaces.find(
+        (entry) => entry.primary && entry.trusted !== false,
+      )?.cwd,
+    [ordinaryWorkspaces],
+  );
   const isKnownLiveWorkspaceCwd = useCallback(
     (cwd: string | undefined) =>
       cwd !== undefined &&
@@ -2610,6 +2617,15 @@ export function App({
   >(initialSelectedWorkspaceCwd);
   const selectedWorkspaceCwdRef = useRef(selectedWorkspaceCwd);
   selectedWorkspaceCwdRef.current = selectedWorkspaceCwd;
+  const resolveWorkspaceMaintenanceTargetCwd = useCallback(() => {
+    const preferredCwd = lockedWorkspaceCwd ?? selectedWorkspaceCwdRef.current;
+    if (preferredCwd) {
+      return ordinaryWorkspaces.find(
+        (entry) => entry.cwd === preferredCwd && entry.trusted !== false,
+      )?.cwd;
+    }
+    return trustedPrimaryWorkspaceCwd;
+  }, [lockedWorkspaceCwd, ordinaryWorkspaces, trustedPrimaryWorkspaceCwd]);
   const [pendingSessionContext, setPendingSessionContextState] = useState<
     DaemonProductSessionContext | undefined
   >(undefined);
@@ -2625,22 +2641,34 @@ export function App({
     connection.workspaceCwd ||
     lockedWorkspaceCwd ||
     selectedWorkspaceCwd ||
-    ordinaryWorkspaces.find((entry) => entry.primary)?.cwd ||
+    trustedPrimaryWorkspaceCwd ||
     workspace.capabilities?.workspaceCwd;
-  const effectiveSessionContext = useMemo(
+  const settledSessionContext = useMemo<
+    DaemonProductSessionContext | undefined
+  >(
     () =>
-      pendingSessionContext ??
       connection.sessionContext ??
-      (legacyWorkspaceContextCwd
-        ? { kind: 'workspace' as const, cwd: legacyWorkspaceContextCwd }
-        : undefined),
+      (isKnownLiveWorkspaceCwd(connection.workspaceCwd)
+        ? { kind: 'live' }
+        : legacyWorkspaceContextCwd
+          ? { kind: 'workspace', cwd: legacyWorkspaceContextCwd }
+          : undefined),
     [
       connection.sessionContext,
+      connection.workspaceCwd,
+      isKnownLiveWorkspaceCwd,
       legacyWorkspaceContextCwd,
-      pendingSessionContext,
     ],
   );
+  const effectiveSessionContext = useMemo(
+    () => pendingSessionContext ?? settledSessionContext,
+    [pendingSessionContext, settledSessionContext],
+  );
   const workspaceContextActive = effectiveSessionContext?.kind === 'workspace';
+  const pendingNonWorkspaceNavigation =
+    pendingSessionContext !== undefined &&
+    pendingSessionContext.kind !== 'workspace' &&
+    settledSessionContext?.kind === 'workspace';
   const effectiveStandaloneSession =
     effectiveSessionContext?.kind === 'standalone'
       ? connection.standaloneSession
@@ -2871,17 +2899,13 @@ export function App({
     }
     return connection.sessionId
       ? connection.workspaceCwd
-      : (lockedWorkspaceCwd ??
-          selectedWorkspaceCwd ??
-          ordinaryWorkspaces.find((entry) => entry.primary)?.cwd);
+      : resolveWorkspaceMaintenanceTargetCwd();
   }, [
     connection.sessionId,
     connection.workspaceCwd,
     connection.sessionContext,
-    lockedWorkspaceCwd,
-    selectedWorkspaceCwd,
-    ordinaryWorkspaces,
     pendingSessionContext,
+    resolveWorkspaceMaintenanceTargetCwd,
     workspaceContextActive,
   ]);
   // Worktree sessions query git status with the worktree path (?cwd=
@@ -5897,6 +5921,7 @@ export function App({
       return;
     }
     if (!workspaceContextActive) {
+      if (pendingNonWorkspaceNavigation) return;
       if (
         effectiveSessionContext === undefined &&
         !workspaceCapabilitiesReady
@@ -5928,6 +5953,7 @@ export function App({
     externalSplitControlled,
     externalSplitSignature,
     effectiveSessionContext,
+    pendingNonWorkspaceNavigation,
     sanitizeSplitSessionIds,
     workspaceCapabilitiesReady,
     workspaceContextActive,
@@ -5955,6 +5981,7 @@ export function App({
   // close) doesn't re-fire on every App re-render. Back from the split returns
   // to the Session Overview — the hub the split is launched from.
   const handleSplitExit = useCallback(() => {
+    splitClassificationGenerationRef.current += 1;
     notifyControlledSplitClose();
     // The user left the split of their own accord, so a refresh must not bring
     // it back. (A shrink-fold is transient and deliberately doesn't clear it.)
@@ -6581,7 +6608,7 @@ export function App({
         connectionRef.current.sessionContext;
       const availableWorkspaces = workspacesRef.current;
       const primaryWorkspaceCwd = availableWorkspaces.find(
-        (entry) => entry.primary,
+        (entry) => entry.primary && entry.trusted !== false,
       )?.cwd;
       const requestedWorkspaceCwd = selectedWorkspaceCwdRef.current;
       const acceptedWorkspaceCwd = requestedWorkspaceCwd
@@ -6597,7 +6624,11 @@ export function App({
                 entry.cwd === requestedSessionContext.cwd &&
                 entry.trusted !== false,
             )?.cwd ??
-            (requestedSessionContext.cwd === connectionRef.current.workspaceCwd
+            (requestedSessionContext.cwd ===
+              connectionRef.current.workspaceCwd &&
+            availableWorkspaces.find(
+              (entry) => entry.cwd === requestedSessionContext.cwd,
+            )?.trusted !== false
               ? requestedSessionContext.cwd
               : undefined))
           : requestedSessionContext?.kind === 'standalone'
@@ -10038,6 +10069,7 @@ export function App({
   // returns to the chat view and reports load failures.
   const handleOpenSessionFromOverview = useCallback(
     (sessionId: string, workspaceCwd?: string) => {
+      splitClassificationGenerationRef.current += 1;
       // Explicit navigation cancels any pending shrink-fold split restore.
       splitFoldedByShrinkRef.current = false;
       setMainView('chat');
@@ -14252,10 +14284,7 @@ export function App({
                         // creates it via its cron_create tool. Focus is deferred
                         // so the new session's composer is mounted/visible first.
                         const targetCwd =
-                          lockedWorkspaceCwd ??
-                          selectedWorkspaceCwd ??
-                          ordinaryWorkspaces.find((entry) => entry.primary)
-                            ?.cwd;
+                          resolveWorkspaceMaintenanceTargetCwd();
                         if (!targetCwd) return;
                         void createNewSession({
                           kind: 'workspace',
@@ -14329,10 +14358,7 @@ export function App({
                         if (!canReuseStranded) {
                           strandedGoalSessionRef.current = undefined;
                           const targetCwd =
-                            lockedWorkspaceCwd ??
-                            selectedWorkspaceCwd ??
-                            ordinaryWorkspaces.find((entry) => entry.primary)
-                              ?.cwd;
+                            resolveWorkspaceMaintenanceTargetCwd();
                           if (!targetCwd) return false;
                           const created = await createNewSession(
                             { kind: 'workspace', cwd: targetCwd },
@@ -15215,10 +15241,7 @@ export function App({
                                 )?.cwd ??
                                 (connection.sessionId
                                   ? connection.workspaceCwd
-                                  : (selectedWorkspaceCwd ??
-                                    ordinaryWorkspaces.find(
-                                      (entry) => entry.primary,
-                                    )?.cwd)))
+                                  : resolveWorkspaceMaintenanceTargetCwd()))
                               : undefined
                           }
                           composerScopeKey={
