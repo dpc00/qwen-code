@@ -5720,7 +5720,10 @@ export function App({
       setSettingsInitialCategory(undefined);
     }
   }, [activePanel]);
-  const closePanel = useCallback(() => setActivePanel(null), []);
+  const closePanel = useCallback(() => {
+    splitClassificationGenerationRef.current += 1;
+    setActivePanel(null);
+  }, []);
   useEffect(() => {
     if (workspaceContextActive) return;
     splitClassificationGenerationRef.current += 1;
@@ -5784,6 +5787,7 @@ export function App({
         | 'agents'
         | 'channels',
     ) => {
+      splitClassificationGenerationRef.current += 1;
       setMainView('chat');
       setActivePanel(panel);
     },
@@ -5801,15 +5805,18 @@ export function App({
     });
   }, [workspaceActions]);
   const openScheduledTasks = useCallback(() => {
+    splitClassificationGenerationRef.current += 1;
     setActivePanel(null);
     setMainView('scheduledTasks');
   }, []);
   const openGoals = useCallback(() => {
+    splitClassificationGenerationRef.current += 1;
     setActivePanel(null);
     setMainView('goals');
   }, []);
   const openSessionDrawer = useCallback(() => {
     if (!sidebarOptions.enabled) return;
+    splitClassificationGenerationRef.current += 1;
     setActivePanel(null);
     setMainView('chat');
     setForceMobileDrawer(true);
@@ -9178,6 +9185,7 @@ export function App({
         pushToast('warning', t('session.recoveryBlocksAction'));
         return false;
       }
+      splitClassificationGenerationRef.current += 1;
       const invocation = ++sessionOpenInvocationRef.current;
       let nextContext: DaemonProductSessionContext | undefined;
       let availableWorkspaces = workspacesRef.current;
@@ -9346,6 +9354,7 @@ export function App({
           );
           if (!target?.trusted) return;
         }
+        splitClassificationGenerationRef.current += 1;
         if (connectionRef.current.sessionId) {
           if (connectionRef.current.workspaceCwd === targetCwd) return;
           if (!targetCwd) return;
@@ -9848,6 +9857,7 @@ export function App({
       workspaceCwd?: string,
       sessionContext?: DaemonProductSessionContext,
     ) => {
+      splitClassificationGenerationRef.current += 1;
       const invocation = ++sessionOpenInvocationRef.current;
       const previousPendingContext = pendingSessionContextRef.current;
       const targetContext =
@@ -13678,6 +13688,7 @@ export function App({
                   onMobileClose={closeMobileDrawer}
                   selectedWorkspaceCwd={selectedWorkspaceCwd}
                   onSelectWorkspace={(workspaceCwd) => {
+                    splitClassificationGenerationRef.current += 1;
                     const targetWorkspaceCwd =
                       workspaceCwd ??
                       workspacesRef.current.find(
